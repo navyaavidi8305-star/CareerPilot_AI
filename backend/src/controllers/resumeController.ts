@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../index';
 import { AuthRequest } from '../types';
 import { analyzeResumeWithAI, generateCareerRecommendations, generateSkillGapAnalysis, generateRoadmap } from '../utils/openai';
+import { sanitizeGaps } from '../utils/skillGapUtils';
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, 'uploads/'),
@@ -150,7 +151,7 @@ export async function getLatestResume(req: AuthRequest, res: Response, next: Nex
 
 async function processResumeAnalysis(userId: string, resumeId: string, analysis: any) {
   try {
-    const userSkills = analysis.skills || [];
+    const userSkills: string[] = analysis.skills || [];
     const marketTrends = await prisma.marketInsight.findMany({ orderBy: { createdAt: 'desc' }, take: 20 });
 
     const aiRecommendations = await generateCareerRecommendations(
@@ -188,7 +189,11 @@ async function processResumeAnalysis(userId: string, resumeId: string, analysis:
 
     if (allRequiredSkills.length > 0) {
       const aiGaps = await generateSkillGapAnalysis(userSkills, [...new Set(allRequiredSkills)]);
-      for (const gap of aiGaps) {
+      const cleanedGaps = sanitizeGaps(aiGaps, userSkills.map(s => ({ name: s })));
+
+      await prisma.skillGap.deleteMany({ where: { userId } });
+
+      for (const gap of cleanedGaps.slice(0, 15)) {
         await prisma.skillGap.create({
           data: {
             userId,

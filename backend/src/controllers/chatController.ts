@@ -1,7 +1,22 @@
 import { Response, NextFunction } from 'express';
 import { prisma } from '../index';
 import { AuthRequest } from '../types';
-import { generateAIResponse, generateStreamingResponse } from '../utils/openai';
+import { generateAIResponse, generateStreamingResponse, evaluateResponseConfidence } from '../utils/openai';
+
+type ChatContextMessage = { role: string; content: string };
+
+async function getResponseConfidence(
+  question: string,
+  answer: string,
+  context: ChatContextMessage[]
+): Promise<number | null> {
+  try {
+    return await evaluateResponseConfidence(question, answer, context);
+  } catch (error) {
+    console.error('[Confidence] evaluation failed:', error);
+    return null;
+  }
+}
 
 export async function getChats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -53,8 +68,14 @@ export async function createChat(req: AuthRequest, res: Response, next: NextFunc
         context
       );
 
+      const confidence = await getResponseConfidence(initialMessage, aiResponse, context);
       const aiMessage = await prisma.chatMessage.create({
-        data: { chatId: chat.id, role: 'AI', content: aiResponse },
+        data: {
+          chatId: chat.id,
+          role: 'AI',
+          content: aiResponse,
+          metadata: confidence !== null ? JSON.stringify({ confidence }) : undefined,
+        },
       });
 
       if (!chat.title || chat.title === 'New Chat') {
@@ -107,8 +128,17 @@ export async function sendMessage(req: AuthRequest, res: Response, next: NextFun
       ...recentMessages.slice(-10),
     ]);
 
+    const confidence = await getResponseConfidence(content, aiResponse, [
+      ...context,
+      ...recentMessages.slice(-10),
+    ]);
     const aiMessage = await prisma.chatMessage.create({
-      data: { chatId, role: 'AI', content: aiResponse },
+      data: {
+        chatId,
+        role: 'AI',
+        content: aiResponse,
+        metadata: confidence !== null ? JSON.stringify({ confidence }) : undefined,
+      },
     });
 
     await prisma.chat.update({
@@ -166,8 +196,17 @@ export async function sendMessageStream(req: AuthRequest, res: Response, next: N
       res.write(`data: ${JSON.stringify({ type: 'token', token })}\n\n`);
     }
 
+    const confidence = await getResponseConfidence(content, fullResponse, [
+      ...context,
+      ...recentMessages.slice(-10),
+    ]);
     const aiMessage = await prisma.chatMessage.create({
-      data: { chatId, role: 'AI', content: fullResponse },
+      data: {
+        chatId,
+        role: 'AI',
+        content: fullResponse,
+        metadata: confidence !== null ? JSON.stringify({ confidence }) : undefined,
+      },
     });
 
     await prisma.chat.update({
@@ -267,6 +306,7 @@ async function buildChatContext(userId: string) {
   ]);
 
   return [
+    { role: 'system' as const, content: `[USER CONTEXT — real data from the user's CareerPilot profile. Use it ONLY when relevant. Never invent additional details about the user beyond this data.]` },
     { role: 'system' as const, content: `User Skills: ${profile?.skills?.map(s => s.name).join(', ') || 'Not provided'}` },
     { role: 'system' as const, content: `User Education: ${profile?.education || 'Not provided'}` },
     { role: 'system' as const, content: `Career Goals: ${profile?.careerGoals || 'Not provided'}` },
@@ -277,6 +317,14 @@ async function buildChatContext(userId: string) {
 
 function getSystemPrompt(category?: string): string {
   const basePrompt = `You are CareerGPS AI, an advanced AI assistant created to help users with every type of question while specializing in career guidance, education, and technology.
+
+ACCURACY RULES (HIGHEST PRIORITY — NEVER VIOLATE):
+- NEVER invent facts, statistics, percentages, dates, names, company policies, citations, or news events.
+- If you are not sure about something, explicitly say "I'm not certain about this" and suggest how the user can verify it.
+- Salary figures, market trends, and rankings must always be labeled as "approximate" and vary by location/company/year.
+- You do NOT have real-time data (news, stock prices, live scores, current events). Say so if asked.
+- Personal details about the user (skills, education, goals) come ONLY from the [USER CONTEXT] block. Never assume or invent additional user details.
+- Do not fabricate links, course names, or certifications. Only mention well-known ones you are confident exist.
 
 IDENTITY:
 - You are intelligent, friendly, professional, and supportive.
@@ -318,9 +366,6 @@ Explain concepts clearly with examples.
 
 LANGUAGE:
 If the user speaks Telugu, reply in Telugu. If the user speaks English, reply in English. If the user mixes Telugu and English, reply in the same mixed style.
-
-SAFETY:
-If information is uncertain, clearly say you are not certain. Do not invent facts, statistics, references, or news.
 
 PERSONALITY:
 Be encouraging, patient, conversational. Never be rude. Never refuse harmless questions. Always try to help. If you cannot fully answer something, explain why and provide the closest helpful information.`;

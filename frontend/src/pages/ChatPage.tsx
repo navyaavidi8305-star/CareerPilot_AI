@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Plus, MessageSquare, Search, Archive, Trash2, Sparkles, Bot, User, StopCircle, RefreshCw } from 'lucide-react';
+import { Send, Plus, MessageSquare, Search, Archive, Trash2, Sparkles, Bot, User, StopCircle, RefreshCw, ShieldCheck } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -19,6 +19,33 @@ const subjects = [
   { label: 'Job Search', icon: '💼' },
   { label: 'Salary Talk', icon: '💰' },
 ];
+
+function getConfidence(msg: ChatMessage): number | null {
+  if (typeof msg.confidence === 'number') return msg.confidence;
+  if (!msg.metadata) return null;
+  try {
+    const meta = JSON.parse(msg.metadata);
+    return typeof meta.confidence === 'number' ? meta.confidence : null;
+  } catch {
+    return null;
+  }
+}
+
+function ConfidenceBadge({ value }: { value: number }) {
+  const config = value >= 80
+    ? { color: 'text-green-400 bg-green-500/10 border-green-500/20', label: 'High accuracy' }
+    : value >= 50
+      ? { color: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20', label: 'Verify details' }
+      : { color: 'text-red-400 bg-red-500/10 border-red-500/20', label: 'Low reliability' };
+  return (
+    <span
+      title={`AI self-audit score: ${value}/100. ${config.label}.`}
+      className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border ${config.color}`}
+    >
+      <ShieldCheck className="w-3 h-3" /> {value}% {config.label}
+    </span>
+  );
+}
 
 export default function ChatPage() {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -335,7 +362,13 @@ export default function ChatPage() {
                     <div className="prose prose-sm prose-invert max-w-none break-words">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                     </div>
-                    <p className="text-[10px] text-muted-foreground mt-2 opacity-60">{formatTime(msg.createdAt)}</p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <p className="text-[10px] text-muted-foreground opacity-60">{formatTime(msg.createdAt)}</p>
+                      {msg.role === 'AI' && (() => {
+                        const conf = getConfidence(msg);
+                        return conf !== null ? <ConfidenceBadge value={conf} /> : null;
+                      })()}
+                    </div>
                   </div>
                 </div>
               ))}

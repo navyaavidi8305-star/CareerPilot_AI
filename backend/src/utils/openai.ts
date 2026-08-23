@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
+import { normalizeUserSkillLevel } from './skillGapUtils';
 
 dotenv.config();
 
@@ -43,7 +44,7 @@ export async function generateAIResponse(
   if (canUseGemini()) {
     try {
       console.log('[Gemini] Attempting Gemini API call...');
-      const model = genAI!.getGenerativeModel({ model: 'gemini-3.5-flash' });
+      const model = genAI!.getGenerativeModel({ model: 'gemini-3.5-flash', generationConfig: { temperature: 0.4 } });
       const prompt = buildGeminiPrompt(systemPrompt, userMessage, context);
       const result = await model.generateContent(prompt);
       const text = result.response.text();
@@ -71,7 +72,7 @@ export async function generateAIResponse(
       const response = await openai.chat.completions.create({
         model: 'gpt-4',
         messages,
-        temperature: 0.7,
+        temperature: 0.4,
         max_tokens: 2000,
       });
 
@@ -93,7 +94,7 @@ export async function* generateStreamingResponse(
   // 1. Try Gemini first (free)
   if (canUseGemini()) {
     try {
-      const model = genAI!.getGenerativeModel({ model: 'gemini-3.5-flash' });
+      const model = genAI!.getGenerativeModel({ model: 'gemini-3.5-flash', generationConfig: { temperature: 0.4 } });
       const prompt = buildGeminiPrompt(systemPrompt, userMessage, context);
       const result = await model.generateContentStream(prompt);
       for await (const chunk of result.stream) {
@@ -121,7 +122,7 @@ export async function* generateStreamingResponse(
       const stream = await openai.chat.completions.create({
         model: 'gpt-4',
         messages,
-        temperature: 0.7,
+        temperature: 0.4,
         max_tokens: 2000,
         stream: true,
       });
@@ -1201,7 +1202,22 @@ Return ONLY valid JSON.`;
 }
 
 function generateLocalSkillGaps(currentSkills: string[], targetSkills: string[]): any[] {
-  const lowerCurrent = currentSkills.map(s => s.toLowerCase());
+  const levelValues: Record<string, number> = {
+    NONE: 0, BEGINNER: 25, INTERMEDIATE: 50, ADVANCED: 75, EXPERT: 100,
+  };
+  const computeGap = (cur: string, req: string) =>
+    Math.max(0, Math.min(100, (levelValues[req] ?? 50) - (levelValues[cur] ?? 0)));
+
+  // entries may be "Name" or "Name (LEVEL)"
+  const userSkills = currentSkills.map(entry => {
+    const cleanEntry = String(entry || '');
+    const m = cleanEntry.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+    if (m) {
+      return { name: m[1].trim().toLowerCase(), level: normalizeUserSkillLevel(m[2]) };
+    }
+    return { name: cleanEntry.trim().toLowerCase(), level: normalizeUserSkillLevel(null) };
+  });
+
   const seenNorm = new Set<string>();
   const gaps: any[] = [];
 
@@ -1218,29 +1234,35 @@ function generateLocalSkillGaps(currentSkills: string[], targetSkills: string[])
     seenNorm.add(norm);
 
     const lower = target.toLowerCase();
-    const hasSkill = lowerCurrent.some(s => s.includes(lower) || lower.includes(s));
-    if (!hasSkill) {
-      const isTechnical = /javascript|python|java|react|node|sql|aws|docker|git|typescript|mongodb|css|html|kubernetes|tensorflow|pytorch|api|microservices|linux|devops|ml|ai|data|cloud/i.test(lower);
-      gaps.push({
-        skillName: target,
-        currentLevel: 'NONE',
-        requiredLevel: 'INTERMEDIATE',
-        gap: 100,
-        priority: gaps.length < 3 ? 'CRITICAL' : gaps.length < 7 ? 'RECOMMENDED' : 'OPTIONAL',
-        category: isTechnical ? 'TECHNICAL' : 'DOMAIN',
-        isBeingAddressed: false,
-      });
+    const matched = userSkills.find(u =>
+      u.name === lower ||
+      (u.name.length >= 4 && lower.includes(u.name)) ||
+      (lower.length >= 4 && u.name.includes(lower))
+    );
+
+    let currentLevel: string;
+    let requiredLevel: string;
+    if (!matched) {
+      currentLevel = 'NONE';
+      requiredLevel = 'INTERMEDIATE';
+    } else if (matched.level && matched.level !== 'NONE') {
+      currentLevel = matched.level;
+      requiredLevel = 'ADVANCED';
     } else {
-      gaps.push({
-        skillName: target,
-        currentLevel: 'INTERMEDIATE',
-        requiredLevel: 'ADVANCED',
-        gap: Math.floor(Math.random() * 40) + 20,
-        priority: 'RECOMMENDED',
-        category: 'TECHNICAL',
-        isBeingAddressed: true,
-      });
+      currentLevel = 'INTERMEDIATE';
+      requiredLevel = 'ADVANCED';
     }
+
+    const isTechnical = /javascript|python|java|react|node|sql|aws|docker|git|typescript|mongodb|css|html|kubernetes|tensorflow|pytorch|api|microservices|linux|devops|ml|ai|data|cloud/i.test(lower);
+    gaps.push({
+      skillName: target,
+      currentLevel,
+      requiredLevel,
+      gap: computeGap(currentLevel, requiredLevel),
+      priority: gaps.length < 3 ? 'CRITICAL' : gaps.length < 7 ? 'RECOMMENDED' : 'OPTIONAL',
+      category: isTechnical ? 'TECHNICAL' : 'DOMAIN',
+      isBeingAddressed: !!matched,
+    });
   }
 
   return gaps.slice(0, 12);
@@ -1253,14 +1275,15 @@ export async function generateSkillGapAnalysis(
   if (canUseOpenAI()) {
     try {
       const systemPrompt = `You are a skill gap analyst. Compare current skills against target/industry skills.
+Current skills may include a proficiency hint like "HTML (ADVANCED)" or "SQL (BEGINNER)".
 Return a JSON array of skill gap objects, each with:
 - skillName (string)
-- currentLevel (string: NONE/BEGINNER/INTERMEDIATE/ADVANCED/EXPERT)
-- requiredLevel (string)
-- gap (number 0-100)
+- currentLevel (string: NONE/BEGINNER/INTERMEDIATE/ADVANCED/EXPERT) — reflect what the user actually knows
+- requiredLevel (string: NONE/BEGINNER/INTERMEDIATE/ADVANCED/EXPERT)
 - priority (string: CRITICAL/RECOMMENDED/OPTIONAL)
 - category (string: TECHNICAL/SOFT/DOMAIN)
-- isBeingAddressed (boolean)
+Note: only include skills where there is an actual gap between currentLevel and requiredLevel.
+The system computes the numeric gap automatically from the levels, so focus on accurate level assessment.
 Return ONLY valid JSON array.`;
 
       const prompt = `Current Skills: ${currentSkills.join(', ')}
@@ -1493,4 +1516,99 @@ Evaluate this interview answer thoroughly.`;
   }
 
   return evaluateLocalAnswer(question, answer);
+}
+
+function buildConfidenceJudgePrompt(question: string, answer: string, profileContext: string): string {
+  return `You are an AI output auditor. Your job is to estimate how factually reliable an AI assistant's answer is (hallucination risk).
+
+USER QUESTION:
+${question}
+
+AI ANSWER TO AUDIT:
+${answer}
+
+PROFILE DATA THE ASSISTANT HAD ACCESS TO:
+${profileContext || 'None'}
+
+Score 0-100 where:
+- 90-100 = general explanations/concepts with no risky specific claims; fully trustworthy
+- 70-89 = mostly reliable; minor approximations that are clearly labeled as approximate
+- 40-69 = contains suspicious specifics (exact statistics, dates, salaries, rankings, citations, links) that may be fabricated or unverifiable
+- 0-39 = likely fabricated facts presented confidently
+
+Penalize: invented statistics, fake-sounding links/courses/certifications, overly precise numbers without sources, contradicting the profile data.
+Reward: honest hedging ("approximately", "may vary", "I'm not certain"), well-known established knowledge.
+
+Return ONLY valid JSON, no markdown: {"score": <number 0-100>, "issues": "<one short sentence about main risk, or empty>"}`;
+}
+
+function parseConfidenceScore(text: string): number | null {
+  if (!text) return null;
+  const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const score = typeof parsed.score === 'number' ? parsed.score : parseInt(String(parsed.score).match(/\d+/)?.[0] || '', 10);
+      if (Number.isFinite(score)) return Math.max(0, Math.min(100, Math.round(score)));
+    } catch { /* fall through */ }
+  }
+  const numMatch = cleaned.match(/\b(\d{1,3})\b/);
+  if (numMatch) {
+    const score = parseInt(numMatch[1], 10);
+    if (score >= 0 && score <= 100) return score;
+  }
+  return null;
+}
+
+function localConfidenceHeuristic(answer: string): number {
+  let score = 78;
+  const statCount = (answer.match(/\d+(\.\d+)?\s*(%|percent|lpa|crore|million|billion)/gi) || []).length;
+  score -= Math.min(25, statCount * 6);
+  if (/https?:\/\//.test(answer)) score -= 8;
+  if (/\b(i'?m not certain|not sure|approximate|approximately|may vary|verify|varies)\b/i.test(answer)) score += 8;
+  if (answer.length > 3000) score -= 5;
+  return Math.max(10, Math.min(95, Math.round(score)));
+}
+
+export async function evaluateResponseConfidence(
+  question: string,
+  answer: string,
+  context?: { role: string; content: string }[]
+): Promise<number> {
+  const profileContext = (context || [])
+    .filter(c => c.role !== 'assistant')
+    .map(c => c.content)
+    .join('\n')
+    .substring(0, 1500);
+
+  const judgePrompt = buildConfidenceJudgePrompt(question, answer.substring(0, 4000), profileContext);
+
+  if (canUseGemini()) {
+    try {
+      const model = genAI!.getGenerativeModel({ model: 'gemini-3.5-flash', generationConfig: { temperature: 0 } });
+      const result = await model.generateContent(judgePrompt);
+      const parsed = parseConfidenceScore(result.response.text());
+      if (parsed !== null) return parsed;
+    } catch (error: any) {
+      console.error('[Confidence] Gemini evaluation failed:', error.message);
+    }
+  }
+
+  if (canUseOpenAI()) {
+    try {
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: judgePrompt }],
+        temperature: 0,
+        max_tokens: 100,
+      });
+      const parsed = parseConfidenceScore(response.choices[0]?.message?.content || '');
+      if (parsed !== null) return parsed;
+    } catch (error: any) {
+      console.error('[Confidence] OpenAI evaluation failed:', error.message);
+    }
+  }
+
+  return localConfidenceHeuristic(answer);
 }

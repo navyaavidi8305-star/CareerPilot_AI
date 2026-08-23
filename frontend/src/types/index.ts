@@ -176,6 +176,7 @@ export interface ChatMessage {
   role: 'USER' | 'AI';
   content: string;
   metadata?: string;
+  confidence?: number | null;
   createdAt: string;
 }
 

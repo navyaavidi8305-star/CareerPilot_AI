@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { prisma } from '../index';
 import { AuthRequest } from '../types';
 import { generateSkillGapAnalysis } from '../utils/openai';
+import { skillKey, isDuplicateKey, sanitizeGaps } from '../utils/skillGapUtils';
 
 export async function getSkillGaps(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -22,8 +23,10 @@ export async function analyzeSkillGaps(req: AuthRequest, res: Response, next: Ne
       include: { skills: true },
     });
 
-    const currentSkills = profile?.skills?.map(s => s.name) || [];
-    const careerGoal = profile?.careerGoals || '';
+    const userSkills = profile?.skills || [];
+    const currentSkills = userSkills.map(s =>
+      s.level ? `${s.name} (${String(s.level).toUpperCase()})` : s.name
+    );
 
     const recommendations = await prisma.recommendation.findMany({
       where: { userId: req.userId },
@@ -40,8 +43,8 @@ export async function analyzeSkillGaps(req: AuthRequest, res: Response, next: Ne
     let targetSkills = [...targetSkillsSet];
     const normalized = new Set<string>();
     targetSkills = targetSkills.filter(s => {
-      const norm = s.toLowerCase().replace(/[.#\-_\s]+/g, '');
-      if (normalized.has(norm)) return false;
+      const norm = skillKey(s);
+      if (!norm || [...normalized].some(n => isDuplicateKey(n, norm))) return false;
       normalized.add(norm);
       return true;
     });
@@ -51,10 +54,12 @@ export async function analyzeSkillGaps(req: AuthRequest, res: Response, next: Ne
 
     const aiGaps = await generateSkillGapAnalysis(currentSkills, targetSkills);
 
+    const cleanedGaps = sanitizeGaps(aiGaps, userSkills);
+
     await prisma.skillGap.deleteMany({ where: { userId: req.userId } });
 
     const savedGaps = [];
-    for (const gap of aiGaps) {
+    for (const gap of cleanedGaps.slice(0, 15)) {
       const saved = await prisma.skillGap.create({
         data: {
           userId: req.userId!,

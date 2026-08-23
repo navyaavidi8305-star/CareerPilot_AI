@@ -6,6 +6,11 @@ export async function getInterviews(): Promise<Interview[]> {
   return res.data;
 }
 
+export async function getInterviewById(id: string): Promise<Interview> {
+  const res = await api.get(`/interviews/${id}`);
+  return res.data;
+}
+
 export async function startInterview(data: { type: string; role: string; company?: string }) {
   const res = await api.post('/interviews/start', data);
   return res.data;

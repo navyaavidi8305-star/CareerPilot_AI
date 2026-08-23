@@ -7,8 +7,13 @@ import { Progress } from '../components/ui/progress';
 import { Badge } from '../components/ui/badge';
 import { getSkillGaps, analyzeSkillGaps, updateSkillGap } from '../services/skillGap';
 import { SkillGap } from '../types';
-import { getScoreColor } from '../lib/utils';
 import toast from 'react-hot-toast';
+
+function gapSeverity(gapValue: number): { text: string; bar: string } {
+  if (gapValue >= 50) return { text: 'text-red-400', bar: 'bg-red-500' };
+  if (gapValue >= 25) return { text: 'text-yellow-400', bar: 'bg-yellow-500' };
+  return { text: 'text-green-400', bar: 'bg-green-500' };
+}
 
 const skillTopics: Record<string, string[]> = {
   JavaScript: ['Variables & Scope', 'Closures & Hoisting', 'Promises & Async/Await', 'DOM Manipulation', 'ES6+ Features', 'Event Loop', 'Prototypes & Inheritance'],
@@ -148,12 +153,22 @@ export default function SkillGapsPage() {
                   </div>
                   <div className="flex items-center gap-4 mt-1">
                     <span className="text-xs text-muted-foreground">
-                      {gap.currentLevel || 'NONE'} → {gap.requiredLevel || 'ADVANCED'}
+                      You: {gap.currentLevel || 'NONE'} → Need: {gap.requiredLevel || 'ADVANCED'}
                     </span>
-                    <span className="text-xs text-muted-foreground">Gap: </span>
-                    <span className={`text-xs font-medium ${getScoreColor(100 - (gap.gap || 0))}`}>{gap.gap}%</span>
                   </div>
-                  <Progress value={100 - (gap.gap || 0)} className="mt-2 h-1.5" />
+                  {(() => {
+                    const gapValue = Math.min(100, Math.max(0, gap.gap ?? 0));
+                    const sev = gapSeverity(gapValue);
+                    return (
+                      <>
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Skill missing</span>
+                          <span className={`text-xs font-medium ${sev.text}`}>{gapValue}% missing</span>
+                        </div>
+                        <Progress value={gapValue} indicatorClassName={sev.bar} className="mt-1 h-1.5" />
+                      </>
+                    );
+                  })()}
                 </div>
                 <Button variant="outline" size="sm" onClick={() => setLearningSkill(gap)} className="gap-1">
                   <BookOpen className="w-3 h-3" /> {gap.isBeingAddressed ? 'Continue' : 'Start Learning'}
@@ -193,10 +208,21 @@ export default function SkillGapsPage() {
             <div className="p-4 space-y-4">
               <div>
                 <p className="text-sm text-muted-foreground mb-2">
-                  {learningSkill.currentLevel || 'NONE'} → {learningSkill.requiredLevel || 'ADVANCED'}
-                  <span className="ml-2">Gap: <span className={getScoreColor(100 - (learningSkill.gap || 0))}>{learningSkill.gap}%</span></span>
+                  You: {learningSkill.currentLevel || 'NONE'} → Need: {learningSkill.requiredLevel || 'ADVANCED'}
                 </p>
-                <Progress value={100 - (learningSkill.gap || 0)} className="h-1.5" />
+                {(() => {
+                  const gapValue = Math.min(100, Math.max(0, learningSkill.gap ?? 0));
+                  const sev = gapSeverity(gapValue);
+                  return (
+                    <>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Skill missing</span>
+                        <span className={`text-xs font-medium ${sev.text}`}>{gapValue}% missing</span>
+                      </div>
+                      <Progress value={gapValue} indicatorClassName={sev.bar} className="h-1.5" />
+                    </>
+                  );
+                })()}
               </div>
               <div>
                 <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
