@@ -91,6 +91,12 @@ export async function updateSkill(req: AuthRequest, res: Response, next: NextFun
   try {
     const { id } = req.params;
     const { level, category } = req.body;
+    const profile = await prisma.profile.findUnique({ where: { userId: req.userId } });
+    if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+    const existing = await prisma.skill.findFirst({ where: { id, profileId: profile.id } });
+    if (!existing) return res.status(404).json({ error: 'Skill not found' });
+
     const skill = await prisma.skill.update({
       where: { id },
       data: { level, category },
@@ -104,10 +110,33 @@ export async function updateSkill(req: AuthRequest, res: Response, next: NextFun
 export async function deleteSkill(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
+    const profile = await prisma.profile.findUnique({ where: { userId: req.userId } });
+    if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+    const existing = await prisma.skill.findFirst({ where: { id, profileId: profile.id } });
+    if (!existing) return res.status(404).json({ error: 'Skill not found' });
+
     await prisma.skill.delete({ where: { id } });
     res.json({ message: 'Skill deleted' });
   } catch (error) {
     next(error);
+  }
+}
+
+function parseOptionalDate(value: any): Date | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function stringifyOptionalList(value: any): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return undefined;
   }
 }
 
@@ -116,8 +145,19 @@ export async function addCertification(req: AuthRequest, res: Response, next: Ne
     const profile = await prisma.profile.findUnique({ where: { userId: req.userId } });
     if (!profile) return res.status(404).json({ error: 'Profile not found' });
 
+    const { name, issuer, issueDate, expiryDate, credentialId, url } = req.body;
+    if (!name) return res.status(400).json({ error: 'Certification name is required' });
+
     const cert = await prisma.certification.create({
-      data: { profileId: profile.id, ...req.body },
+      data: {
+        profileId: profile.id,
+        name,
+        issuer,
+        issueDate: parseOptionalDate(issueDate),
+        expiryDate: parseOptionalDate(expiryDate),
+        credentialId,
+        url,
+      },
     });
     res.json(cert);
   } catch (error) {
@@ -130,8 +170,19 @@ export async function addProject(req: AuthRequest, res: Response, next: NextFunc
     const profile = await prisma.profile.findUnique({ where: { userId: req.userId } });
     if (!profile) return res.status(404).json({ error: 'Profile not found' });
 
+    const { title, description, technologies, url, startDate, endDate } = req.body;
+    if (!title) return res.status(400).json({ error: 'Project title is required' });
+
     const project = await prisma.project.create({
-      data: { profileId: profile.id, ...req.body },
+      data: {
+        profileId: profile.id,
+        title,
+        description,
+        technologies: stringifyOptionalList(technologies),
+        url,
+        startDate: parseOptionalDate(startDate),
+        endDate: parseOptionalDate(endDate),
+      },
     });
     res.json(project);
   } catch (error) {
@@ -144,8 +195,19 @@ export async function addInternship(req: AuthRequest, res: Response, next: NextF
     const profile = await prisma.profile.findUnique({ where: { userId: req.userId } });
     if (!profile) return res.status(404).json({ error: 'Profile not found' });
 
+    const { company, position, description, startDate, endDate, skills } = req.body;
+    if (!company || !position) return res.status(400).json({ error: 'Company and position are required' });
+
     const internship = await prisma.internship.create({
-      data: { profileId: profile.id, ...req.body },
+      data: {
+        profileId: profile.id,
+        company,
+        position,
+        description,
+        startDate: parseOptionalDate(startDate),
+        endDate: parseOptionalDate(endDate),
+        skills: stringifyOptionalList(skills),
+      },
     });
     res.json(internship);
   } catch (error) {

@@ -11,7 +11,12 @@ export async function generateRecommendations(): Promise<Recommendation[]> {
   return res.data;
 }
 
-export async function acceptRecommendation(id: string) {
+export interface AcceptRecommendationResult {
+  recommendation: Recommendation;
+  roadmapId: string;
+}
+
+export async function acceptRecommendation(id: string): Promise<AcceptRecommendationResult> {
   const res = await api.post(`/recommendations/${id}/accept`);
   return res.data;
 }

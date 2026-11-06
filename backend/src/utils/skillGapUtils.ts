@@ -14,14 +14,27 @@ const CANONICAL_SKILLS: Record<string, string> = {
   html: 'HTML', html5: 'HTML', css: 'CSS', css3: 'CSS',
   javascript: 'JavaScript', js: 'JavaScript', typescript: 'TypeScript', ts: 'TypeScript',
   python: 'Python', java: 'Java', react: 'React', reactjs: 'React',
-  nodejs: 'Node.js', node: 'Node.js', express: 'Express.js', expressjs: 'Express.js',
-  sql: 'SQL', mysql: 'MySQL', postgresql: 'PostgreSQL', mongodb: 'MongoDB',
+  reactnative: 'React Native', nodejs: 'Node.js', node: 'Node.js',
+  express: 'Express.js', expressjs: 'Express.js',
+  nextjs: 'Next.js', next: 'Next.js', angular: 'Angular', vue: 'Vue.js', vuejs: 'Vue.js',
+  sql: 'SQL', mysql: 'MySQL', postgresql: 'PostgreSQL', postgres: 'PostgreSQL', mongodb: 'MongoDB',
   aws: 'AWS', gcp: 'GCP', azure: 'Azure', docker: 'Docker', kubernetes: 'Kubernetes',
-  k8s: 'Kubernetes', git: 'Git', github: 'GitHub',
+  k8s: 'Kubernetes', terraform: 'Terraform', jenkins: 'Jenkins',
+  git: 'Git', github: 'GitHub', linux: 'Linux',
   machinelearning: 'Machine Learning', ml: 'Machine Learning',
   datascience: 'Data Science', deeplearning: 'Deep Learning',
   restapi: 'REST API', apis: 'REST API', api: 'REST API',
   oop: 'OOP', dsa: 'Data Structures', datastructures: 'Data Structures', algorithms: 'Algorithms',
+  pandas: 'Pandas', numpy: 'NumPy', statistics: 'Statistics', excel: 'Excel',
+  powerbi: 'Power BI', tableau: 'Tableau', dataanalysis: 'Data Analysis',
+  dataanalytics: 'Data Analytics', datavisualization: 'Data Visualization',
+  datacleaning: 'Data Cleaning', featureengineering: 'Feature Engineering',
+  modeldeployment: 'Model Deployment', mlops: 'MLOps',
+  pytorch: 'PyTorch', tensorflow: 'TensorFlow', scikitlearn: 'Scikit-learn',
+  systemdesign: 'System Design', microservices: 'Microservices',
+  cicd: 'CI/CD', devops: 'DevOps', redis: 'Redis', kafka: 'Kafka',
+  cybersecurity: 'Cybersecurity', testing: 'Testing', agile: 'Agile',
+  productmanagement: 'Product Management', uiux: 'UI/UX', figma: 'Figma',
 };
 
 export function skillKey(name: unknown): string {
@@ -33,7 +46,12 @@ export function isDuplicateKey(a: string, b: string): boolean {
   if (a === b) return true;
   const shorter = a.length <= b.length ? a : b;
   const longer = shorter === a ? b : a;
-  return shorter.length >= 4 && longer.includes(shorter);
+  if (shorter.length < 4 || !longer.includes(shorter)) return false;
+  const index = longer.indexOf(shorter);
+  const before = index > 0 ? longer[index - 1] : '';
+  const after = longer[index + shorter.length] || '';
+  const isWordChar = (ch: string) => /[a-z0-9]/.test(ch);
+  return !isWordChar(before) && !isWordChar(after);
 }
 
 export function canonicalSkillName(rawName: unknown): string {
@@ -128,6 +146,21 @@ function findUserLevel(index: Map<string, string>, skillName: string): string | 
   for (const [existingKey, level] of index.entries()) {
     if (isDuplicateKey(existingKey, key)) return level;
   }
+
+  // composite skills like "HTML & CSS" or "PyTorch/TensorFlow" require every part
+  const parts = skillName.split(/\s*(?:&|\/|,|\band\b)\s*/i).filter(p => p.trim().length > 0);
+  if (parts.length > 1) {
+    let lowest: string | null = null;
+    for (const part of parts) {
+      const level = findUserLevel(index, part);
+      if (level === null) return null;
+      if (lowest === null || (LEVEL_VALUES[level] ?? 0) < (LEVEL_VALUES[lowest] ?? 0)) {
+        lowest = level;
+      }
+    }
+    return lowest;
+  }
+
   return null;
 }
 

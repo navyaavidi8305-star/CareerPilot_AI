@@ -109,6 +109,11 @@ export async function updateTaskStatus(req: AuthRequest, res: Response, next: Ne
     const { taskId } = req.params;
     const { status } = req.body;
 
+    const existing = await prisma.task.findFirst({
+      where: { id: taskId, roadmap: { userId: req.userId } },
+    });
+    if (!existing) return res.status(404).json({ error: 'Task not found' });
+
     const task = await prisma.task.update({
       where: { id: taskId },
       data: {

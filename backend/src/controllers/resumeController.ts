@@ -1,14 +1,24 @@
 import { Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../index';
 import { AuthRequest } from '../types';
-import { analyzeResumeWithAI, generateCareerRecommendations, generateSkillGapAnalysis, generateRoadmap } from '../utils/openai';
-import { sanitizeGaps } from '../utils/skillGapUtils';
+import {
+  analyzeResumeWithAI,
+  generateCareerRecommendations,
+  generateLocalSkillGaps,
+  generateRoadmap,
+  getRoleSkillSet,
+} from '../utils/openai';
+import { canonicalSkillName, isDuplicateKey, skillKey } from '../utils/skillGapUtils';
+
+export const uploadsDir = path.resolve(__dirname, '../../uploads');
+fs.mkdirSync(uploadsDir, { recursive: true });
 
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, 'uploads/'),
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname);
     cb(null, `${uuidv4()}${ext}`);
@@ -40,7 +50,6 @@ export async function uploadResume(req: AuthRequest, res: Response, next: NextFu
 
     let resumeText = '';
     try {
-      const fs = require('fs');
       if (fileType === 'PDF') {
         const pdf = require('pdf-parse');
         const dataBuffer = fs.readFileSync(filePath);
@@ -88,6 +97,27 @@ export async function uploadResume(req: AuthRequest, res: Response, next: NextFu
         where: { id: profile.id },
         data: { education: analysis.education },
       });
+    }
+
+    if (analysis.skills && profile) {
+      const existingSkills = await prisma.skill.findMany({
+        where: { profileId: profile.id },
+        select: { name: true },
+      });
+      const existingKeys = existingSkills.map(s => skillKey(canonicalSkillName(s.name)));
+      for (const rawSkill of analysis.skills) {
+        const skillName = canonicalSkillName(typeof rawSkill === 'string' ? rawSkill : rawSkill?.name);
+        const key = skillKey(skillName);
+        if (!key || existingKeys.some(existing => isDuplicateKey(existing, key))) continue;
+        await prisma.skill.create({
+          data: {
+            profileId: profile.id,
+            name: skillName,
+            category: typeof rawSkill === 'object' ? rawSkill?.category : undefined,
+          },
+        });
+        existingKeys.push(key);
+      }
     }
 
     if (analysis.projects && profile) {
@@ -151,7 +181,15 @@ export async function getLatestResume(req: AuthRequest, res: Response, next: Nex
 
 async function processResumeAnalysis(userId: string, resumeId: string, analysis: any) {
   try {
-    const userSkills: string[] = analysis.skills || [];
+    const profile = await prisma.profile.findUnique({
+      where: { userId },
+      include: { skills: true },
+    });
+    const profileSkills = profile?.skills?.map(s => s.name) || [];
+    const resumeSkills = (Array.isArray(analysis.skills) ? analysis.skills : [])
+      .map((s: any) => (typeof s === 'string' ? s : s?.name))
+      .filter(Boolean);
+    const userSkills: string[] = [...new Set([...profileSkills, ...resumeSkills])];
     const marketTrends = await prisma.marketInsight.findMany({ orderBy: { createdAt: 'desc' }, take: 20 });
 
     const aiRecommendations = await generateCareerRecommendations(
@@ -181,19 +219,31 @@ async function processResumeAnalysis(userId: string, resumeId: string, analysis:
       });
     }
 
-    const allRequiredSkills: string[] = [];
-    for (const rec of aiRecommendations) {
-      const skills = rec.requiredSkills || [];
-      allRequiredSkills.push(...skills);
-    }
+    const topRecForGaps = aiRecommendations[0];
+    if (topRecForGaps) {
+      const roleSkills = getRoleSkillSet(topRecForGaps.careerTitle);
+      const roleBaseline = [...roleSkills.core, ...roleSkills.advanced];
+      const baselineSkills = roleBaseline.length > 0 ? roleBaseline : (topRecForGaps.requiredSkills || []);
 
-    if (allRequiredSkills.length > 0) {
-      const aiGaps = await generateSkillGapAnalysis(userSkills, [...new Set(allRequiredSkills)]);
-      const cleanedGaps = sanitizeGaps(aiGaps, userSkills.map(s => ({ name: s })));
+      const userSkillKeys = userSkills
+        .map(name => skillKey(canonicalSkillName(name)))
+        .filter(Boolean);
+      const targetKeys: string[] = [];
+      const targetSkills: string[] = [];
+      for (const rawSkill of baselineSkills) {
+        const skillName = canonicalSkillName(rawSkill);
+        const key = skillKey(skillName);
+        if (!key) continue;
+        if (userSkillKeys.some(existing => isDuplicateKey(existing, key))) continue;
+        if (targetKeys.some(existing => isDuplicateKey(existing, key))) continue;
+        targetKeys.push(key);
+        targetSkills.push(skillName);
+      }
 
       await prisma.skillGap.deleteMany({ where: { userId } });
 
-      for (const gap of cleanedGaps.slice(0, 15)) {
+      const gaps = generateLocalSkillGaps(userSkills, targetSkills, topRecForGaps.careerTitle).slice(0, 15);
+      for (const gap of gaps) {
         await prisma.skillGap.create({
           data: {
             userId,

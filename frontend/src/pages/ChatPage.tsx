@@ -3,7 +3,7 @@ import { Send, Plus, MessageSquare, Search, Archive, Trash2, Sparkles, Bot, User
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { getChats, createChat, sendMessage, deleteChat, archiveChat, searchChats } from '../services/chat';
+import { getChats, getChatById, createChat, sendMessage, deleteChat, archiveChat, searchChats } from '../services/chat';
 import { Chat, ChatMessage } from '../types';
 import { formatDate, formatTime, cn } from '../lib/utils';
 import api from '../services/api';
@@ -78,14 +78,16 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);
 
-  const handleNewChat = async () => {
+  const handleNewChat = async (): Promise<Chat | null> => {
     try {
       const chat = await createChat({ title: 'New Chat' });
       setChats(prev => [chat, ...prev]);
       setActiveChat(chat);
       setMessages(chat.messages || []);
+      return chat;
     } catch {
       toast.error('Failed to create chat');
+      return null;
     }
   };
 
@@ -95,11 +97,19 @@ export default function ChatPage() {
     setStreamingContent('');
     setActiveChat(chat);
     setMessages(chat.messages || []);
+    try {
+      const fullChat = await getChatById(chat.id);
+      setActiveChat(fullChat);
+      setMessages(fullChat.messages || []);
+    } catch {
+      /* keep list preview if full history fails */
+    }
   };
 
-  const handleSend = useCallback(async (prompt?: string) => {
+  const handleSend = useCallback(async (prompt?: string, chatOverride?: Chat) => {
     const msg = prompt || input;
-    if (!msg.trim() || !activeChat) return;
+    const chat = chatOverride || activeChat;
+    if (!msg.trim() || !chat) return;
 
     setSending(true);
     setStreamingContent('');
@@ -108,7 +118,7 @@ export default function ChatPage() {
 
     const userMessage: ChatMessage = {
       id: 'temp-' + Date.now(),
-      chatId: activeChat.id,
+      chatId: chat.id,
       role: 'USER',
       content: userMsg,
       createdAt: new Date().toISOString(),
@@ -122,7 +132,7 @@ export default function ChatPage() {
     let fullResponse = '';
 
     try {
-      const response = await fetch(`/api/chat/${activeChat.id}/stream`, {
+      const response = await fetch(`/api/chat/${chat.id}/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -131,6 +141,8 @@ export default function ChatPage() {
         body: JSON.stringify({ content: userMsg }),
         signal: controller.signal,
       });
+
+      if (!response.ok) throw new Error(`Stream request failed: ${response.status}`);
 
       const reader = response.body?.getReader();
       if (!reader) throw new Error('No reader');
@@ -167,20 +179,19 @@ export default function ChatPage() {
         }
       }
     } catch (err: any) {
-      if (err.name === 'AbortError') {
-        if (fullResponse) {
-          try {
-            const result = await sendMessage(activeChat.id, userMsg);
-            setMessages(prev => prev.filter(m => m.id !== userMessage.id));
-            setMessages(prev => [...prev, result.userMessage, result.aiMessage]);
-          } catch { /* ignore */ }
-        }
+      const persisted = await getChatById(chat.id).catch(() => null);
+      const persistedMessages = persisted?.messages || [];
+      const userSaved = persistedMessages.some(m => m.role === 'USER' && m.content === userMsg);
+
+      if (userSaved) {
+        setMessages(persistedMessages);
+        if (err.name !== 'AbortError') toast.error('Connection lost. Showing saved messages.');
       } else {
         try {
-          const result = await sendMessage(activeChat.id, userMsg);
-          setMessages(prev => prev.filter(m => m.id !== userMessage.id));
-          setMessages(prev => [...prev, result.userMessage, result.aiMessage]);
+          const result = await sendMessage(chat.id, userMsg);
+          setMessages(prev => [...prev.filter(m => m.id !== userMessage.id), result.userMessage, result.aiMessage]);
         } catch {
+          setMessages(prev => prev.filter(m => m.id !== userMessage.id));
           toast.error('Failed to send message');
         }
       }
@@ -432,7 +443,6 @@ export default function ChatPage() {
                   <button
                     key={item.label}
                     onClick={async () => {
-                      await handleNewChat();
                       const prompts: Record<string, string> = {
                         'Career Guidance': 'Help me explore career paths that match my skills and interests',
                         'Resume Tips': 'How can I make my resume stand out to recruiters?',
@@ -441,7 +451,8 @@ export default function ChatPage() {
                         'Job Search': 'What is the best strategy for finding a job?',
                         'Salary Talk': 'How do I negotiate my salary effectively?',
                       };
-                      setTimeout(() => handleSend(prompts[item.label]), 600);
+                      const chat = await handleNewChat();
+                      if (chat) await handleSend(prompts[item.label], chat);
                     }}
                     className="flex items-center gap-2 p-3 rounded-xl border border-border bg-card hover:bg-secondary/50 transition-colors text-left"
                   >

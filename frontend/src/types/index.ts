@@ -26,6 +26,9 @@ export interface Profile {
   preferredDomains?: string;
   careerGoals?: string;
   interests?: string;
+  targetRole?: string;
+  preferredLanguage?: string;
+  learningLevel?: string;
   skills: Skill[];
   certifications: Certification[];
   projects: Project[];
@@ -186,26 +189,63 @@ export interface Interview {
   type: string;
   role?: string;
   company?: string;
+  experienceLevel?: string;
+  difficulty?: string;
   status: string;
   overallScore?: number;
   communicationScore?: number;
   confidenceScore?: number;
   technicalAccuracy?: number;
   problemSolvingScore?: number;
+  relevanceScore?: number;
+  clarityScore?: number;
   strengths?: string;
   weakAreas?: string;
   improvementPlan?: string;
   questions?: string;
+  questionBank?: string;
   answers?: string;
+  answeredCount?: number;
+  totalQuestions?: number;
+  currentQuestion?: {
+    question: string;
+    number: number;
+    difficulty: string;
+    topic: string;
+  } | null;
   feedback?: string;
+  report?: InterviewReport | null;
   startedAt: string;
   completedAt?: string;
   createdAt: string;
 }
 
+export interface InterviewReport {
+  overallScore: number;
+  scores: {
+    correctness: number;
+    relevance: number;
+    clarity: number;
+    confidence: number;
+    communication: number;
+    problemSolving: number;
+    technicalAccuracy: number;
+  };
+  byDifficulty: { difficulty: string; questions: number; averageScore: number }[];
+  questionsAnswered: number;
+  strengths: string[];
+  weakAreas: string[];
+  mistakes: string[];
+  improvements: string[];
+  recommendations: string[];
+  summary: string;
+  generatedAt: string;
+}
+
 export interface SkillGap {
   id: string;
   userId: string;
+  targetRole?: string;
   skillName: string;
   currentLevel?: string;
   requiredLevel?: string;
@@ -245,4 +285,122 @@ export interface LearningResource {
   type: string;
   skills?: string;
   difficulty?: string;
+}
+
+export type LearningLanguage = 'English' | 'Telugu' | 'Hindi';
+export type LearningLevel = 'Beginner' | 'Intermediate' | 'Advanced';
+
+export interface LearningVideo {
+  videoId: string;
+  title: string;
+  channel: string;
+  description: string;
+  thumbnail: string;
+  url: string;
+  duration?: string;
+  views?: string;
+  publishedAt?: string;
+  language: LearningLanguage;
+  isFallback?: boolean;
+}
+
+export interface LearningSubjectSummary {
+  key: string;
+  title: string;
+  description: string;
+  skills: string[];
+  level: LearningLevel;
+  category: string;
+  topics: string[];
+  nextTopics: string[];
+  progress: number;
+  completedTopics: string[];
+  hasVideo: boolean;
+  isRecommended: boolean;
+  isRoleSubject: boolean;
+}
+
+export interface LearningSubjectsResponse {
+  preferences: {
+    language: LearningLanguage;
+    level: LearningLevel;
+    targetRole: string;
+    preferredLanguage: string;
+    learningLevel: string;
+  };
+  recommendedSubjects: LearningSubjectSummary[];
+  subjects: LearningSubjectSummary[];
+  gapSkills: {
+    skillName: string;
+    currentLevel?: string;
+    requiredLevel?: string;
+    priority?: string;
+  }[];
+}
+
+export interface LearningSubjectDetail {
+  subject: {
+    key: string;
+    title: string;
+    description: string;
+    skills: string[];
+    level: LearningLevel;
+    category: string;
+    topics: string[];
+  };
+  preferences: { language: LearningLanguage; level: LearningLevel };
+  progress: number;
+  completedTopics: string[];
+  nextTopics: string[];
+  videos: LearningVideo[];
+}
+
+export interface KnowledgeGraphNode {
+  id: string;
+  label: string;
+  type: string;
+  group: string;
+  color: string;
+  match?: number;
+  priority?: string;
+  level?: string;
+  meta: Record<string, any>;
+}
+
+export interface KnowledgeGraphLink {
+  source: string;
+  target: string;
+  type: string;
+  label?: string;
+}
+
+export interface KnowledgeGraphData {
+  nodes: KnowledgeGraphNode[];
+  links: KnowledgeGraphLink[];
+  categories: { id: string; label: string; color: string; count: number }[];
+  targetRole: {
+    id: string;
+    title: string;
+    description: string;
+    category: string;
+    salaryRange: string;
+    demand: string;
+    growth: string;
+    requiredSkills: string[];
+    certifications: string[];
+    interviewTopics: string[];
+    matchingSkills: string[];
+    missingSkills: string[];
+    matchPercentage: number;
+    learningPaths: { key: string; title: string; description: string; topics: string[]; skills: string[]; level: string }[];
+  } | null;
+  stats: {
+    nodes: number;
+    links: number;
+    skills: number;
+    gaps: number;
+    careers: number;
+    learningPaths: number;
+  };
+  updatedAt: string;
 }

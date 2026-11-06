@@ -61,4 +61,7 @@ export const profileSchema = z.object({
   preferredDomains: z.string().optional(),
   careerGoals: z.string().optional(),
   interests: z.string().optional(),
+  targetRole: z.string().max(120).optional(),
+  preferredLanguage: z.enum(['English', 'Telugu', 'Hindi']).optional(),
+  learningLevel: z.enum(['Beginner', 'Intermediate', 'Advanced']).optional(),
 });

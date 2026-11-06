@@ -1,5 +1,20 @@
+# Dependencies
 **/node_modules/
+
+# Environment variables
 **/.env
+**/.env.*
+!.env.example
+
+# Build files
 dist/
 build/
+*.tsbuildinfo
+
+# Uploads
 uploads/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3

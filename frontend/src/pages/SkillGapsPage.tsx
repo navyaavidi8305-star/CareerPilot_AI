@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Target, AlertTriangle, CheckCircle, Zap, Brain, Sparkles, BookOpen, Route, X, ListChecks } from 'lucide-react';
+import { Target, AlertTriangle, CheckCircle, Zap, Brain, Sparkles, BookOpen, Route, X, ListChecks, Briefcase, GraduationCap } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
 import { Badge } from '../components/ui/badge';
 import { getSkillGaps, analyzeSkillGaps, updateSkillGap } from '../services/skillGap';
+import { getProfile } from '../services/user';
+import { getRecommendations } from '../services/recommendation';
 import { SkillGap } from '../types';
 import toast from 'react-hot-toast';
 
@@ -59,23 +61,45 @@ export default function SkillGapsPage() {
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [learningSkill, setLearningSkill] = useState<SkillGap | null>(null);
+  const [targetRole, setTargetRole] = useState('');
+  const [roleOptions, setRoleOptions] = useState<string[]>([]);
 
-  const fetchData = async () => {
+  const fetchData = async (role?: string) => {
     try {
-      const data = await getSkillGaps();
+      const data = await getSkillGaps(role);
       setGaps(data);
     } catch { console.error('Failed to fetch skill gaps'); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    const load = async () => {
+      const [profile, recommendations] = await Promise.all([
+        getProfile().catch(() => null),
+        getRecommendations().catch(() => []),
+      ]);
+      const roles = Array.from(new Set([
+        profile?.targetRole,
+        ...recommendations.map(rec => rec.careerTitle),
+      ].filter((value): value is string => !!value && !!value.trim())));
+      setRoleOptions(roles);
+      const role = profile?.targetRole || roles[0] || '';
+      setTargetRole(role);
+      await fetchData(role || undefined);
+    };
+    load();
+  }, []);
 
   const handleAnalyze = async () => {
+    if (!targetRole.trim()) {
+      toast.error('Choose a target role first');
+      return;
+    }
     setAnalyzing(true);
     try {
-      const data = await analyzeSkillGaps();
+      const data = await analyzeSkillGaps(targetRole);
       setGaps(data);
-      toast.success('Skill gap analysis complete!');
+      toast.success(`Skill gaps updated for ${targetRole}`);
     } catch { toast.error('Analysis failed'); }
     finally { setAnalyzing(false); }
   };
@@ -83,7 +107,7 @@ export default function SkillGapsPage() {
   const handleToggleAddress = async (id: string, current: boolean) => {
     try {
       await updateSkillGap(id, { isBeingAddressed: !current });
-      fetchData();
+      fetchData(targetRole || undefined);
     } catch { toast.error('Update failed'); }
   };
 
@@ -98,15 +122,40 @@ export default function SkillGapsPage() {
 
   return (
     <div className="space-y-6 animate-in">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Skill Gap Analysis</h1>
-          <p className="text-muted-foreground text-sm mt-1">Identify and bridge the gap between your skills and industry requirements</p>
+          <p className="text-muted-foreground text-sm mt-1">Analyze your skills against a specific target role — not just any career</p>
         </div>
-        <Button onClick={handleAnalyze} disabled={analyzing} className="gap-2">
-          <Brain className="w-4 h-4" /> {analyzing ? 'Analyzing...' : 'Analyze Gaps'}
-        </Button>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <label className="text-[11px] text-muted-foreground flex items-center gap-1"><Briefcase className="w-3 h-3" /> Target role</label>
+            <input
+              list="skill-gap-role-options"
+              className="flex h-10 min-w-[220px] rounded-lg border border-input bg-background px-3 py-2 text-sm"
+              placeholder="Choose or type a role"
+              value={targetRole}
+              onChange={e => setTargetRole(e.target.value)}
+              onBlur={() => fetchData(targetRole || undefined)}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            />
+            <datalist id="skill-gap-role-options">
+              {roleOptions.map(role => <option key={role} value={role} />)}
+            </datalist>
+          </div>
+          <Button onClick={handleAnalyze} disabled={analyzing || !targetRole} className="gap-2">
+            <Brain className="w-4 h-4" /> {analyzing ? 'Analyzing...' : 'Analyze Gaps'}
+          </Button>
+        </div>
       </div>
+
+      {targetRole && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Comparing against</span>
+          <Badge variant="secondary">{targetRole}</Badge>
+          {gaps.length > 0 && gaps[0].targetRole && <span className="text-xs text-muted-foreground">· saved for {gaps[0].targetRole}</span>}
+        </div>
+      )}
 
       {gaps.length > 0 && (
         <div className="grid grid-cols-3 gap-4">
@@ -237,15 +286,24 @@ export default function SkillGapsPage() {
                   ))}
                 </div>
               </div>
-              <div className="flex gap-2 pt-2">
-                <Button className="flex-1 gap-2" onClick={() => {
+              <div className="flex flex-col gap-2 pt-2">
+                <Button className="w-full gap-2" onClick={() => {
                   handleToggleAddress(learningSkill.id, learningSkill.isBeingAddressed);
-                  navigate(`/roadmap?skill=${encodeURIComponent(learningSkill.skillName)}`);
+                  navigate('/learning');
                   setLearningSkill(null);
                 }}>
-                  <Route className="w-4 h-4" /> Create Roadmap for {learningSkill.skillName}
+                  <GraduationCap className="w-4 h-4" /> Learn {learningSkill.skillName}
                 </Button>
-                <Button variant="outline" onClick={() => setLearningSkill(null)}>Close</Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" className="flex-1 gap-2" onClick={() => {
+                    handleToggleAddress(learningSkill.id, learningSkill.isBeingAddressed);
+                    navigate(`/roadmap?skill=${encodeURIComponent(learningSkill.skillName)}`);
+                    setLearningSkill(null);
+                  }}>
+                    <Route className="w-4 h-4" /> Create roadmap
+                  </Button>
+                  <Button variant="outline" onClick={() => setLearningSkill(null)}>Close</Button>
+                </div>
               </div>
             </div>
           </div>

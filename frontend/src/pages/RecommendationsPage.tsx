@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Brain, Sparkles, CheckCircle, AlertTriangle, Shield, TrendingUp, IndianRupee, Users } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Brain, Sparkles, CheckCircle, AlertTriangle, Shield, TrendingUp, IndianRupee, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
@@ -10,9 +11,11 @@ import { getScoreColor, formatDate } from '../lib/utils';
 import toast from 'react-hot-toast';
 
 export default function RecommendationsPage() {
+  const navigate = useNavigate();
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
   const fetchData = async () => {
@@ -41,13 +44,20 @@ export default function RecommendationsPage() {
     }
   };
 
-  const handleAccept = async (id: string) => {
+  const handleAccept = async (rec: Recommendation) => {
+    if (rec.isAccepted) {
+      navigate('/roadmap');
+      return;
+    }
+    setAcceptingId(rec.id);
     try {
-      await acceptRecommendation(id);
-      toast.success('Recommendation accepted! Roadmap and skill gaps updated.');
-      fetchData();
+      await acceptRecommendation(rec.id);
+      toast.success('Roadmap created!');
+      navigate('/roadmap');
     } catch {
-      toast.error('Failed to accept');
+      toast.error('Failed to create roadmap');
+    } finally {
+      setAcceptingId(null);
     }
   };
 
@@ -147,14 +157,30 @@ export default function RecommendationsPage() {
                   </div>
                 )}
 
-                {!rec.isAccepted && rec.isVerified && (
-                  <Button className="w-full" onClick={() => handleAccept(rec.id)}>
-                    <CheckCircle className="w-4 h-4 mr-2" /> Accept & Create Roadmap
+                {rec.isAccepted ? (
+                  <Button variant="outline" className="w-full" onClick={() => handleAccept(rec)}>
+                    <CheckCircle className="w-4 h-4 mr-2" /> View Roadmap
+                  </Button>
+                ) : (
+                  <Button
+                    className="w-full"
+                    onClick={() => handleAccept(rec)}
+                    disabled={acceptingId !== null}
+                  >
+                    {acceptingId === rec.id ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating roadmap...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4 mr-2" /> Accept & Create Roadmap
+                      </>
+                    )}
                   </Button>
                 )}
 
                 {!rec.isVerified && (
-                  <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                  <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 mt-3">
                     <p className="text-xs text-yellow-400 flex items-start gap-2">
                       <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
                       {rec.verificationSource || 'Low confidence recommendation. Upload your resume or provide more information for better accuracy.'}

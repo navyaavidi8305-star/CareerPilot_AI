@@ -35,6 +35,7 @@ model User {
   securityLogs   SecurityLog[]
   skillProgress  SkillProgress[]
   skillGaps      SkillGap[]
+  learningProgress LearningProgress[]
 }
 
 model Session {
@@ -119,6 +120,9 @@ model Profile {
   preferredDomains String?
   careerGoals      String?
   interests        String?
+  targetRole       String?
+  preferredLanguage String?  @default("English")
+  learningLevel    String?   @default("Beginner")
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -267,6 +271,7 @@ model Recommendation {
 model SkillGap {
   id             String   @id @default(uuid())
   userId         String
+  targetRole     String?
   skillName      String
   currentLevel   String?
   requiredLevel  String?
@@ -349,18 +354,24 @@ model Interview {
   type           String   // TECHNICAL, HR, CODING, MOCK
   role           String?
   company        String?
+  experienceLevel String? // Fresher, 1-3 years, 3-5 years, 5+ years
+  difficulty     String?  @default("INTERMEDIATE") // EASY, INTERMEDIATE, HARD
   status         String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED
   overallScore   Float?
   communicationScore Float?
   confidenceScore Float?
   technicalAccuracy Float?
   problemSolvingScore Float?
+  relevanceScore Float?
+  clarityScore   Float?
   strengths      String?  // JSON array
   weakAreas      String?  // JSON array
   improvementPlan String?
-  questions      String?  // JSON array
+  questions      String?  // JSON array of question strings
+  questionBank   String?  // JSON array of {question, expectedAnswer, difficulty, topic}
   answers        String?  // JSON array
   feedback       String?
+  report         String?  // JSON final report
   startedAt      DateTime @default(now())
   completedAt    DateTime?
   createdAt      DateTime @default(now())
@@ -381,6 +392,34 @@ model Notification {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model LearningProgress {
+  id             String   @id @default(uuid())
+  userId         String
+  subjectKey     String
+  subjectTitle   String
+  skillName      String?
+  language       String   @default("English")
+  level          String   @default("Beginner")
+  completedTopics String? // JSON array of topic names
+  progress       Int      @default(0)
+  lastAccessedAt DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, subjectKey, language, level])
+  @@index([userId])
+}
+
+model LearningVideoCache {
+  id        String   @id @default(uuid())
+  cacheKey  String   @unique
+  query     String
+  payload   String   // JSON array of video metadata
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }
 
 model LearningResource {

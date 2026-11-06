@@ -233,18 +233,7 @@ export async function verifyResetOTP(req: AuthRequest, res: Response, next: Next
 
     if (!resetRecord) return res.status(400).json({ error: 'Invalid or expired OTP' });
 
-    await prisma.passwordReset.update({
-      where: { id: resetRecord.id },
-      data: { isUsed: true },
-    });
-
-    const tempToken = uuidv4();
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { refreshToken: tempToken },
-    });
-
-    res.json({ message: 'OTP verified', resetToken: tempToken });
+    res.json({ message: 'OTP verified', resetToken: resetRecord.id });
   } catch (error) {
     next(error);
   }
@@ -256,10 +245,25 @@ export async function resetPassword(req: AuthRequest, res: Response, next: NextF
     const user = await prisma.user.findUnique({ where: { email: data.email } });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    const resetRecord = await prisma.passwordReset.findFirst({
+      where: {
+        userId: user.id,
+        otp: data.otp,
+        isUsed: false,
+        expiresAt: { gt: new Date() },
+      },
+    });
+    if (!resetRecord) return res.status(400).json({ error: 'Invalid or expired OTP' });
+
     const hashedPassword = await bcrypt.hash(data.password, 12);
     await prisma.user.update({
       where: { id: user.id },
       data: { password: hashedPassword, refreshToken: null },
+    });
+
+    await prisma.passwordReset.updateMany({
+      where: { userId: user.id, isUsed: false },
+      data: { isUsed: true },
     });
 
     await prisma.session.updateMany({
