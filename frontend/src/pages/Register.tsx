@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Sparkles, User, Mail, Phone, Lock, Eye, EyeOff } from 'lucide-react';
+import { Sparkles, User, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -9,7 +9,7 @@ import { useAuthStore } from '../store/authStore';
 import toast from 'react-hot-toast';
 
 export default function Register() {
-  const [form, setForm] = useState({ fullName: '', email: '', mobile: '', password: '', confirmPassword: '' });
+  const [form, setForm] = useState({ fullName: '', email: '', password: '', confirmPassword: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -27,10 +27,6 @@ export default function Register() {
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
       toast.error('Please enter a valid email address');
-      return;
-    }
-    if (form.mobile && (form.mobile.length < 10 || form.mobile.length > 15)) {
-      toast.error('Mobile number must be 10-15 digits');
       return;
     }
     if (form.password.length < 8) {
@@ -102,14 +98,6 @@ export default function Register() {
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input className="pl-10" type="email" placeholder="you@example.com" value={form.email} onChange={updateField('email')} required />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Mobile (optional)</Label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input className="pl-10" placeholder="+1 234 567 8900" value={form.mobile} onChange={updateField('mobile')} />
               </div>
             </div>
 

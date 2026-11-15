@@ -12,20 +12,24 @@ export default function MarketPage() {
   const [trendingSkills, setTrendingSkills] = useState<MarketInsight[]>([]);
   const [companies, setCompanies] = useState<MarketInsight[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const [all, skills, comps] = await Promise.all([
-          getMarketInsights().catch(() => []),
-          getTrendingSkills().catch(() => []),
-          getTopCompanies().catch(() => []),
+          getMarketInsights(),
+          getTrendingSkills(),
+          getTopCompanies(),
         ]);
         setInsights(all);
         setTrendingSkills(skills);
         setCompanies(comps);
-      } catch { console.error('Failed to fetch market data'); }
-      finally { setLoading(false); }
+      } catch {
+        setError(true);
+      } finally {
+        setLoading(false);
+      }
     };
     fetchData();
   }, []);
@@ -39,6 +43,15 @@ export default function MarketPage() {
   };
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-2 text-center">
+        <p className="text-sm font-medium text-foreground">Could not load market intelligence</p>
+        <p className="text-xs text-muted-foreground">Please refresh the page or try again later.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in">
@@ -56,6 +69,9 @@ export default function MarketPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
+              {trendingSkills.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">No trending skills available yet.</p>
+              )}
               {trendingSkills.slice(0, 10).map(skill => (
                 <div key={skill.id} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -80,6 +96,9 @@ export default function MarketPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
+              {companies.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">No company data available yet.</p>
+              )}
               {companies.slice(0, 10).map(company => (
                 <div key={company.id} className="flex items-center justify-between p-2 rounded-lg glass-hover">
                   <div className="flex items-center gap-3">
@@ -130,6 +149,9 @@ export default function MarketPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {insights.filter(i => i.category === 'SALARY_TREND' || i.category === 'INDUSTRY_DEMAND').length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4 md:col-span-2 lg:col-span-3">No market overview data available yet.</p>
+            )}
             {insights.filter(i => i.category === 'SALARY_TREND' || i.category === 'INDUSTRY_DEMAND').slice(0, 6).map(insight => (
               <div key={insight.id} className="p-4 rounded-lg border border-border glass-hover">
                 <div className="flex items-center justify-between mb-2">
